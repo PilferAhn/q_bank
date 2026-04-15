@@ -1,0 +1,77 @@
+erDiagram
+    vendors {
+        int id PK
+        string name
+        string slug
+    }
+
+    exams {
+        int id PK
+        int vendor_id FK
+        string name
+        string slug
+    }
+
+    exam_levels {
+        int id PK
+        int exam_id FK
+        string level
+        string slug
+    }
+
+    exam_sets {
+        int id PK
+        int exam_level_id FK
+        int set_number
+    }
+
+    questions {
+        int id PK
+        int exam_set_id FK
+        int number
+        text body
+        jsonb options
+    }
+
+    answers {
+        int id PK
+        int question_id FK
+        string correct
+        text quote
+        text explanation
+    }
+
+    domains {
+        int id PK
+        int parent_id FK
+        string name
+        string slug
+    }
+
+    concepts {
+        int id PK
+        int exam_level_id FK
+        int domain_id FK
+        string title
+        string slug
+        text definition
+        jsonb comparison
+        text practical_tips
+    }
+
+    question_concepts {
+        int question_id FK
+        int concept_id FK
+        string note
+    }
+
+    vendors ||--o{ exams : "has"
+    exams ||--o{ exam_levels : "has"
+    exam_levels ||--o{ exam_sets : "has"
+    exam_sets ||--o{ questions : "contains"
+    questions ||--|| answers : "has"
+    domains ||--o{ domains : "parent"
+    domains ||--o{ concepts : "categorizes"
+    exam_levels ||--o{ concepts : "scopes"
+    questions ||--o{ question_concepts : ""
+    concepts ||--o{ question_concepts : ""

@@ -1,1 +1,6 @@
 .claude/
+.env
+*.env
+backend/pgdata/
+frontend/__pycache__/
+frontend/views/__pycache__/

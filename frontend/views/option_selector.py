@@ -51,6 +51,7 @@ def render(options: dict, key: str) -> str:
         options=list(options.keys()),
         format_func=lambda k: _to_label(k, options[k]),
         key=key,
+        index=None,
         label_visibility="collapsed",
     )
     return selected

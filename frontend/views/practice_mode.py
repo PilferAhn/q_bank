@@ -3,7 +3,7 @@ practice_mode.py - 시험 연습 모드 (문제별 즉시 정답 확인)
 """
 import streamlit as st
 from backend import get_questions_by_level
-from views.option_selector import render as render_options, render_result
+from views.option_selector import render as render_options
 
 
 def show():
@@ -85,7 +85,21 @@ def _show_question(questions, idx: int, total: int):
 
     else:
         selected = answered[qid]
-        render_result(options, selected, str(row["correct"]))
+        correct = str(row["correct"])
+        for k, v in options.items():
+            if k == correct:
+                bg, border, label = "#d4edda", "#28a745", f"✅ {k}."
+            elif k == selected:
+                bg, border, label = "#f8d7da", "#dc3545", f"❌ {k}."
+            else:
+                bg, border, label = "#f8f9fa", "#dee2e6", f"{k}."
+            st.markdown(
+                f"""<div style="background:{bg};border:2px solid {border};
+                    border-radius:8px;padding:12px 16px;margin-bottom:8px">
+                    <strong>{label}</strong><br>{_md_to_html(v)}
+                </div>""",
+                unsafe_allow_html=True,
+            )
 
         if row["explanation"]:
             st.info(f"💡 **해설:** {row['explanation']}")
@@ -127,6 +141,28 @@ def _show_complete():
     if st.button("홈으로"):
         st.session_state["page"] = "select"
         st.rerun()
+
+
+def _md_to_html(text: str) -> str:
+    """마크다운 코드블록/인라인코드 → HTML 변환"""
+    import re
+    # ```lang\ncode\n``` → <pre><code>
+    text = re.sub(
+        r'```[^\n]*\n(.*?)```',
+        lambda m: (
+            f'<pre style="background:rgba(0,0,0,0.06);padding:8px 12px;'
+            f'border-radius:4px;font-size:13px;overflow-x:auto;margin:6px 0">'
+            f'<code>{m.group(1).strip()}</code></pre>'
+        ),
+        text, flags=re.DOTALL,
+    )
+    # 인라인 `code`
+    text = re.sub(
+        r'`([^`]+)`',
+        r'<code style="background:rgba(0,0,0,0.06);padding:1px 4px;border-radius:3px">\1</code>',
+        text,
+    )
+    return text
 
 
 def _parse_options(options) -> dict:

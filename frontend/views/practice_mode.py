@@ -7,35 +7,18 @@ from views.option_selector import render as render_options
 
 
 def show():
-    _header()
-
     if "practice_questions" not in st.session_state:
         _load_questions()
         return
 
     questions = st.session_state["practice_questions"]
-    idx = st.session_state.get("practice_index", 0)
     total = len(questions)
 
-    if idx >= total:
+    if st.session_state.get("practice_index", 0) >= total:
         _show_complete()
         return
 
-    _show_question(questions, idx, total)
-
-
-def _header():
-    col1, col2 = st.columns([1, 8])
-    with col1:
-        if st.button("← 돌아가기"):
-            st.session_state["page"] = "select"
-            st.rerun()
-    with col2:
-        st.subheader(
-            f"📖 {st.session_state.get('vendor_name', '')} "
-            f"{st.session_state.get('exam_name', '')} "
-            f"— {st.session_state.get('exam_level_name', '')} 연습"
-        )
+    _show_question(questions, total)
 
 
 def _load_questions():
@@ -46,6 +29,10 @@ def _load_questions():
         st.error("등록된 문제가 없습니다.")
         return
 
+    limit = st.session_state.get("practice_limit")
+    if limit and limit < len(questions):
+        questions = questions.head(limit)
+
     st.session_state.update({
         "practice_questions": questions.reset_index(drop=True),
         "practice_index": 0,
@@ -55,41 +42,93 @@ def _load_questions():
     st.rerun()
 
 
-def _show_question(questions, idx: int, total: int):
+@st.fragment
+def _show_question(questions, total: int):
+    idx = st.session_state.get("practice_index", 0)
+    if idx >= total:
+        _show_complete()
+        return
     row = questions.iloc[idx]
     answered = st.session_state.get("practice_answered", {})
     qid = row["id"]
     already_answered = qid in answered
     options = _parse_options(row["options"])
 
+    answer_count = row.get("answer_count")
+    multi = (answer_count != 1)
+    correct_set = {str(x) for x in row["correct"]}
+
+    # ── 헤더 ──
+    if st.button("← 돌아가기"):
+        st.session_state["page"] = "select"
+        st.rerun()
+    st.subheader(
+        f"📖 {st.session_state.get('vendor_name', '')} "
+        f"{st.session_state.get('exam_name', '')} "
+        f"— {st.session_state.get('exam_level_name', '')} 연습"
+    )
     st.progress(idx / total, text=f"{idx + 1} / {total} 문제")
     st.divider()
 
     st.markdown(f"### Q{idx + 1}.")
     st.markdown(row["body"])
+
+    if multi and answer_count:
+        st.caption(f"정답 {answer_count}개 선택")
+    elif multi:
+        st.caption("복수 정답 — 해당하는 것을 모두 선택")
+
     st.write("")
 
     if not already_answered:
         key = f"practice_q_{qid}"
-        render_options(options, key=key)
-        selected = st.session_state.get(key)
+        selected = render_options(options, key=key, multi=multi, in_fragment=True)
 
-        if st.button("확인", type="primary"):
+        # 확인 버튼 활성화 조건
+        if multi:
+            sel_set = selected if isinstance(selected, set) else set()
+            can_confirm = bool(sel_set) if not answer_count else (len(sel_set) == answer_count)
+        else:
+            can_confirm = bool(selected)
+
+        st.markdown("""
+        <style>
+        /* 확인 버튼 (컬럼 밖 primary) → 우하단 고정 */
+        [data-testid="stButton"] > button[kind="primary"] {
+            position: fixed !important;
+            bottom: 2rem;
+            right: 2rem;
+            z-index: 9999;
+            width: auto !important;
+            padding: 0.6rem 2rem !important;
+        }
+        /* 보기 버튼 (컬럼 안 primary) → 제자리 유지 */
+        [data-testid="stHorizontalBlock"] button[kind="primary"] {
+            position: static !important;
+            width: 100% !important;
+            padding: revert !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+        if st.button("확인", type="primary", key=f"confirm_{qid}", disabled=not can_confirm):
             answered[qid] = selected
             st.session_state["practice_answered"] = answered
-            if selected == str(row["correct"]):
+            sel_set = selected if isinstance(selected, set) else ({selected} if selected else set())
+            if sel_set == correct_set:
                 st.session_state["practice_correct"] = (
                     st.session_state.get("practice_correct", 0) + 1
                 )
-            st.rerun()
+            st.rerun(scope="fragment")
 
     else:
         selected = answered[qid]
-        correct = str(row["correct"])
+        sel_set = selected if isinstance(selected, set) else ({selected} if selected else set())
+
         for k, v in options.items():
-            if k == correct:
+            if k in correct_set:
                 bg, border, label = "#d4edda", "#28a745", f"✅ {k}."
-            elif k == selected:
+            elif k in sel_set:
                 bg, border, label = "#f8d7da", "#dc3545", f"❌ {k}."
             else:
                 bg, border, label = "#f8f9fa", "#dee2e6", f"{k}."
@@ -113,12 +152,12 @@ def _show_question(questions, idx: int, total: int):
             if idx > 0:
                 if st.button("← 이전", use_container_width=True):
                     st.session_state["practice_index"] = idx - 1
-                    st.rerun()
+                    st.rerun(scope="fragment")
         with col2:
             label = "다음 →" if idx < total - 1 else "결과 보기"
             if st.button(label, type="primary", use_container_width=True):
                 st.session_state["practice_index"] = idx + 1
-                st.rerun()
+                st.rerun(scope="fragment")
 
 
 def _show_complete():
@@ -144,9 +183,7 @@ def _show_complete():
 
 
 def _md_to_html(text: str) -> str:
-    """마크다운 코드블록/인라인코드 → HTML 변환"""
     import re
-    # ```lang\ncode\n``` → <pre><code>
     text = re.sub(
         r'```[^\n]*\n(.*?)```',
         lambda m: (
@@ -156,7 +193,6 @@ def _md_to_html(text: str) -> str:
         ),
         text, flags=re.DOTALL,
     )
-    # 인라인 `code`
     text = re.sub(
         r'`([^`]+)`',
         r'<code style="background:rgba(0,0,0,0.06);padding:1px 4px;border-radius:3px">\1</code>',

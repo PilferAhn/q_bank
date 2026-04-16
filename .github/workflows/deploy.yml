@@ -1,0 +1,51 @@
+name: Deploy to Databricks Apps (prod)
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: prod
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      # app.yaml에 Lakebase 접속 정보 주입
+      - name: Patch app.yaml with Lakebase credentials
+        run: |
+          sed -i 's|your-lakebase-host|${{ secrets.DB_HOST }}|g' frontend/app.yaml
+          sed -i 's|your-lakebase-user|${{ secrets.DB_USER }}|g' frontend/app.yaml
+
+      # DB 패스워드는 app.yaml에 넣지 않고 별도 env로 주입
+      - name: Set DB password as Databricks secret
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          databricks secrets put-secret q-bank DB_PASSWORD \
+            --string-value "${{ secrets.DB_PASSWORD }}"
+
+      # 워크스페이스에 소스코드 업로드
+      - name: Sync source to Databricks Workspace
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          databricks workspace import-dir ./frontend \
+            /Workspace/Users/${{ secrets.DATABRICKS_USER }}/apps/q_bank \
+            --overwrite
+
+      # Databricks Apps 배포
+      - name: Deploy Databricks App
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          databricks apps deploy ${{ secrets.DATABRICKS_APP_NAME }} \
+            --source-code-path /Workspace/Users/${{ secrets.DATABRICKS_USER }}/apps/q_bank

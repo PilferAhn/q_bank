@@ -2,11 +2,26 @@
 exam_mode.py - 시험 시작 모드 (세트 단위, 일괄 채점)
 """
 import streamlit as st
-from backend import save_exam_result, save_user_answers, get_wrong_answers
+import streamlit.components.v1 as components
+from backend import save_exam_result, save_user_answers, get_wrong_answers, get_questions_by_set
 from views.option_selector import render as render_options, render_result
 
 
 def show():
+    if "exam_questions" not in st.session_state:
+        if st.session_state.get("exam_set_id"):
+            questions = get_questions_by_set(st.session_state["exam_set_id"])
+            st.session_state.update({
+                "exam_questions": questions.reset_index(drop=True),
+                "exam_submitted": False,
+                "exam_page": 0,
+            })
+            st.rerun()
+        else:
+            st.session_state["page"] = "select"
+            st.rerun()
+        return
+
     _header()
 
     if st.session_state.get("exam_submitted"):
@@ -16,38 +31,55 @@ def show():
 
 
 def _header():
-    col1, col2 = st.columns([1, 8])
-    with col1:
-        if st.button("← 돌아가기"):
-            st.session_state["page"] = "select"
-            st.rerun()
-    with col2:
-        st.subheader(
-            f"🎯 {st.session_state.get('vendor_name', '')} "
-            f"{st.session_state.get('exam_name', '')} "
-            f"— {st.session_state.get('exam_level_name', '')}"
-        )
+    if st.button("← 돌아가기"):
+        st.session_state["page"] = "select"
+        st.rerun()
+    st.subheader(
+        f"🎯 {st.session_state.get('vendor_name', '')} "
+        f"{st.session_state.get('exam_name', '')} "
+        f"— {st.session_state.get('exam_level_name', '')}"
+    )
+    st.divider()
+
+
+PAGE_SIZE = 10
 
 
 def _show_exam():
     questions = st.session_state["exam_questions"]
     set_num = st.session_state.get("exam_set_number", "?")
+    total = len(questions)
+    total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+    page = st.session_state.get("exam_page", 0)
+    start = page * PAGE_SIZE
+    end = min(start + PAGE_SIZE, total)
 
-    st.info(
-        f"📌 Set {set_num} | {len(questions)}문제 | "
-        f"응시자: {st.session_state.get('exam_user', '')}"
-    )
-    st.divider()
-
-    for i, row in questions.iterrows():
+    # ── 문제 목록 ──
+    page_questions = questions.iloc[start:end]
+    for i, (_, row) in enumerate(page_questions.iterrows()):
+        q_num = start + i + 1
         options = _parse_options(row["options"])
-        st.markdown(f"**Q{i + 1}.**")
+        st.markdown(f"**Q{q_num}.**")
         st.markdown(row["body"])
         render_options(options, key=f"exam_q_{row['id']}")
         st.divider()
 
-    if st.button("📮 답안 제출", type="primary"):
-        _submit(questions)
+    # ── 하단: 이전 / 다음 or 제출 ──
+    col_prev, col_next = st.columns(2)
+    if page > 0:
+        if col_prev.button("← 이전", use_container_width=True):
+            st.session_state["exam_page"] = page - 1
+            st.rerun()
+    if page < total_pages - 1:
+        if col_next.button("다음 →", type="primary", use_container_width=True):
+            st.session_state["exam_page"] = page + 1
+            st.rerun()
+    else:
+        if col_next.button("📮 답안 제출", type="primary", use_container_width=True):
+            _submit(questions)
+
+    # 페이지 이동 시 최상단 스크롤
+    components.html("<script>window.parent.document.querySelector('section.main').scrollTo(0,0)</script>", height=0)
 
 
 def _submit(questions):
@@ -56,8 +88,9 @@ def _submit(questions):
 
     for _, row in questions.iterrows():
         key = f"exam_q_{row['id']}"
-        selected = st.session_state.get(key)  # radio가 자동으로 저장
-        is_correct = selected == str(row["correct"])
+        selected = st.session_state.get(key)
+        correct_set = {str(x) for x in row["correct"]}
+        is_correct = ({selected} if selected else set()) == correct_set
         if is_correct:
             correct_count += 1
         answer_records.append((row["id"], selected, is_correct))

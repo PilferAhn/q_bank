@@ -37,11 +37,11 @@ jobs:
       - name: Sync source to Databricks Workspace
         run: |
           databricks workspace import-dir ./frontend \
-            /Workspace/Users/${{ secrets.DATABRICKS_USER }}/apps/q_bank \
+            "/Workspace/Users/${{ secrets.DATABRICKS_USER }}/apps/q_bank" \
             --overwrite
 
       # Databricks Apps 배포
       - name: Deploy Databricks App
         run: |
           databricks apps deploy ${{ secrets.DATABRICKS_APP_NAME }} \
-            --source-code-path /Workspace/Users/${{ secrets.DATABRICKS_USER }}/apps/q_bank
+            --source-code-path "/Workspace/Users/${{ secrets.DATABRICKS_USER }}/apps/q_bank"

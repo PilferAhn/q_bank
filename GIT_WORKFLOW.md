@@ -267,3 +267,32 @@ GitHub → Settings → Branches → Branch protection rules
 ```
 
 **개발자는 코드를 쓰고 PR을 만든다. 나머지는 시스템이 한다.**
+
+---
+
+## 현재 프로젝트의 배포 트리거 참고
+
+지금은 master에 push할 때마다 **배포가 같이 돌아가서**, 문서만 수정해도 deploy가 실행됩니다.
+
+실무라면:
+
+```
+dev (작업) → PR → staging (QA) → PR → main (배포)
+```
+
+하지만 지금은 혼자 개발 + 프로젝트 규모가 작으니까 **master 직접 push로 충분**합니다. 배포가 같이 돌아도 비용이나 리스크가 거의 없으니까요.
+
+나중에 분리하고 싶으면, deploy.yml의 트리거만 바꾸면 됩니다:
+
+```yaml
+# 지금: master push마다 배포
+on:
+  push:
+    branches: [master]
+
+# 나중에: 수동 버튼으로만 배포
+on:
+  workflow_dispatch:
+```
+
+이러면 push는 자유롭게 하고, 배포는 GitHub Actions에서 **Run workflow** 눌렀을 때만 실행됩니다.

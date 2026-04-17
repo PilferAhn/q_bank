@@ -1,37 +1,56 @@
+# ─── 워크플로우 이름 ───
+# GitHub Actions 탭에서 표시되는 이름
 name: Deploy to Databricks Apps (prod)
 
+# ─── 트리거 설정 ───
+# 이 워크플로우가 "언제" 실행되는지 정의
 on:
   push:
-    branches: [master]
-  workflow_dispatch:
+    branches: [master]    # master 브랜치에 push되면 자동 실행
+  workflow_dispatch:       # GitHub UI에서 "Run workflow" 버튼으로 수동 실행도 가능
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
-    environment: prod
+    # ─── 실행 환경 ───
+    runs-on: ubuntu-latest   # GitHub가 제공하는 Ubuntu VM에서 실행
+    environment: prod        # GitHub의 "prod" 환경 설정 사용 (Secrets, 보호 규칙 등)
 
+    # ─── 환경변수 ───
+    # Databricks CLI가 자동으로 읽는 M2M 인증 정보
+    # GitHub Settings → Secrets에 저장된 값이 런타임에 주입됨
     env:
-      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
-      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}              # Databricks 워크스페이스 URL
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}    # Service Principal의 Client ID
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}  # Service Principal의 Secret (M2M 인증)
 
     steps:
+      # ─── Step 1: 코드 체크아웃 ───
+      # GitHub 리포지토리의 소스코드를 VM에 클론
       - uses: actions/checkout@v4
 
+      # ─── Step 2: Databricks CLI 설치 ───
+      # VM에 databricks CLI를 설치 (이후 단계에서 사용)
+      # 위의 env에 설정된 CLIENT_ID/SECRET으로 자동 M2M 인증됨
       - name: Install Databricks CLI
         uses: databricks/setup-cli@main
 
-      # app.yaml에 Lakebase 접속 정보 주입 (placeholder → 실제 값)
+      # ─── Step 3: app.yaml에 DB 접속 정보 주입 ───
+      # app.yaml의 placeholder 문자열을 GitHub Secrets의 실제 값으로 치환
+      # 이렇게 하면 git에는 실제 비밀번호가 올라가지 않음
       - name: Patch app.yaml with Lakebase credentials
         run: |
           sed -i 's|your-lakebase-host|${{ secrets.DB_HOST }}|g' frontend/app.yaml
           sed -i 's|your-lakebase-user|${{ secrets.DB_USER }}|g' frontend/app.yaml
           sed -i 's|your-lakebase-password|${{ secrets.DB_PASSWORD }}|g' frontend/app.yaml
 
-      # 워크스페이스에 소스코드 업로드
+      # ─── Step 4: 소스코드를 Databricks Workspace에 업로드 ───
+      # ./frontend 폴더 전체를 Databricks Workspace 경로에 동기화
+      # --overwrite: 기존 파일 덮어쓰기
       - name: Sync source to Databricks Workspace
         run: databricks workspace import-dir ./frontend "/Workspace/Users/${{ secrets.DATABRICKS_USER }}/apps/q_bank" --overwrite
 
-      # Databricks Apps 배포
+      # ─── Step 5: Databricks App 배포 ───
+      # Workspace에 올린 코드로 Databricks App을 (재)배포
+      # 앱이 재시작되면서 새 코드가 반영됨
       - name: Deploy Databricks App
         run: databricks apps deploy "${{ secrets.DATABRICKS_APP_NAME }}" --source-code-path "/Workspace/Users/${{ secrets.DATABRICKS_USER }}/apps/q_bank"

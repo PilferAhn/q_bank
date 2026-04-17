@@ -21,17 +21,12 @@ jobs:
       - name: Install Databricks CLI
         uses: databricks/setup-cli@main
 
-      # app.yaml에 Lakebase 접속 정보 주입
+      # app.yaml에 Lakebase 접속 정보 주입 (placeholder → 실제 값)
       - name: Patch app.yaml with Lakebase credentials
         run: |
           sed -i 's|your-lakebase-host|${{ secrets.DB_HOST }}|g' frontend/app.yaml
           sed -i 's|your-lakebase-user|${{ secrets.DB_USER }}|g' frontend/app.yaml
-
-      # DB 패스워드를 Databricks Secret에 저장 (앱이 valueFrom으로 읽음)
-      - name: Set DB password as Databricks secret
-        run: |
-          databricks secrets put-secret q-bank DB_PASSWORD \
-            --string-value "${{ secrets.DB_PASSWORD }}"
+          sed -i 's|your-lakebase-password|${{ secrets.DB_PASSWORD }}|g' frontend/app.yaml
 
       # 워크스페이스에 소스코드 업로드
       - name: Sync source to Databricks Workspace

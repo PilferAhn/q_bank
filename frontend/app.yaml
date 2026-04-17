@@ -15,4 +15,4 @@ env:
   - name: DB_USER
     value: "your-lakebase-user"           # CI/CD에서 치환됨
   - name: DB_PASSWORD
-    valueFrom: "q-bank.DB_PASSWORD"       # Databricks Secret에서 읽음
+    value: "your-lakebase-password"       # CI/CD에서 치환됨

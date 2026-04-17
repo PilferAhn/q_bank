@@ -4,6 +4,8 @@
 command: ["streamlit", "run", "app.py", "--server.port", "8000"]
 
 env:
+  - name: APP_ENV
+    value: "prod"                        # dev 전용 UI 숨김
   - name: USER_ID_SOURCE
     value: "databricks"           # Databricks 로그인 계정을 응시자 ID로 사용
   - name: DB_HOST

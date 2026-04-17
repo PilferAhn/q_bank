@@ -24,6 +24,18 @@ def _get_user_identity() -> str | None:
     source = os.getenv("USER_ID_SOURCE", "").lower()
 
     if source == "databricks":
+        try:
+            headers = st.context.headers
+            # Databricks Apps가 로그인 사용자 이메일을 헤더로 주입
+            email = (
+                headers.get("X-Forwarded-Email")
+                or headers.get("X-Forwarded-Preferred-Username")
+                or headers.get("X-Forwarded-User")
+            )
+            if email:
+                return email
+        except Exception:
+            pass
         return os.getenv("DATABRICKS_USER_NAME", "unknown")
 
     if source == "ip":

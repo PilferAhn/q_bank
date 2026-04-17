@@ -16,13 +16,18 @@ except ImportError:
 
 
 def get_connection():
-    return psycopg2.connect(
-        host=os.getenv("DB_HOST", "localhost"),
+    host = os.getenv("DB_HOST", "localhost")
+    sslmode = "require" if host != "localhost" else None
+    params = dict(
+        host=host,
         port=os.getenv("DB_PORT", "5432"),
         dbname=os.getenv("DB_NAME", "q_bank"),
         user=os.getenv("DB_USER", "postgres"),
         password=os.getenv("DB_PASSWORD", ""),
     )
+    if sslmode:
+        params["sslmode"] = sslmode
+    return psycopg2.connect(**params)
 
 
 def run_query(query: str, params=None) -> pd.DataFrame:

@@ -7,10 +7,12 @@ env:
   - name: USER_ID_SOURCE
     value: "databricks"           # Databricks 로그인 계정을 응시자 ID로 사용
   - name: DB_HOST
-    value: "your-lakebase-host"   # CI/CD에서 치환됨
+    value: "your-lakebase-host"           # CI/CD에서 치환됨
   - name: DB_PORT
     value: "5432"
   - name: DB_NAME
     value: "q_bank"
   - name: DB_USER
-    value: "your-lakebase-user"   # CI/CD에서 치환됨
+    value: "your-lakebase-user"           # CI/CD에서 치환됨
+  - name: DB_PASSWORD
+    valueFrom: "q-bank.DB_PASSWORD"       # Databricks Secret에서 읽음

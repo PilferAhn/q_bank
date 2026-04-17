@@ -475,3 +475,255 @@ git push origin master
 - [ ] `DB_USER`를 `q_bank_app`으로 바꿨는지?
 - [ ] 서비스 프린시플에 Apps/Workspace 권한이 있는지?
 - [ ] Databricks Secret scope `q-bank`이 존재하는지? (이미 생성됨)
+
+---
+
+## CI/CD 실행 중 발생한 에러들
+
+GitHub Actions에서 `deploy.yml` 실행 시 발생한 에러와 해결 방법.
+
+### CI/CD 에러 1: `invalid character " " in host name`
+
+```
+Error: parse "***  ": invalid character " " in host name
+```
+
+#### 원인
+GitHub Secrets에 값을 등록할 때 **앞뒤에 공백이 포함**됨.
+예: `https://ddbx-serverless.cloud.databricks.com ` ← 끝에 공백!
+
+GitHub Secrets는 복사-붙여넣기할 때 공백이 들어가기 쉬움.
+눈에 안 보이지만 CLI가 URL을 파싱할 때 에러남.
+
+#### 해결
+해당 Secret을 **삭제하고 다시 등록**. 복사할 때 앞뒤 공백 없이!
+
+> **팁:** Secret 값을 붙여넣은 후 `Home` → `Shift+End`로 전체 선택해서
+> 앞뒤 공백이 있는지 눈으로 확인하는 습관을 들이자.
+
+---
+
+### CI/CD 에러 2: `cannot configure default credentials` (OAuth M2M)
+
+```
+Error: default auth: cannot configure default credentials
+Config: host=***, client_id=***, client_secret=***
+```
+
+#### 원인
+두 가지 가능성:
+
+1. **Secret 값에 공백이 포함** — 위와 같은 문제
+2. **OAuth Secret이 만료되었거나 무효** — SP의 OAuth Secret은 유효기간이 있음
+
+#### 해결
+1. `DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRET` Secret 재등록 (공백 제거)
+2. Secret이 만료되었으면 Databricks에서 새로 발급:
+   - Admin Settings → Service principals → 해당 SP 클릭
+   - OAuth secrets → Generate secret → 새 Client Secret 복사
+   - GitHub Secrets 업데이트
+
+---
+
+### CI/CD 에러 3: `does not have secret-scopes.secrets/put permission`
+
+```
+Error: User *** does not have secret-scopes.secrets/put permission on scope ***
+Auth type: OAuth Machine-to-Machine (oauth-m2m)
+```
+
+#### 이게 뭔 소리야?
+OAuth M2M 인증은 성공했는데 (서비스 프린시플 로그인은 됨),
+Databricks Secret scope에 비밀번호를 저장할 **권한이 없다**는 뜻.
+
+#### 비유
+회사 건물에 출입증으로 들어오는 건 됐는데 (로그인 성공),
+금고 방에 들어가서 물건을 넣을 권한은 없는 상태 (Secret 쓰기 권한 없음).
+
+#### 해결
+서비스 프린시플에 Secret scope 접근 권한을 부여:
+
+```bash
+# OAuth 프로필로 실행 (관리자 권한 필요)
+databricks secrets put-acl q-bank <서비스프린시플-client-id> MANAGE --profile oauth
+```
+
+- `q-bank`: Secret scope 이름
+- `<서비스프린시플-client-id>`: SP의 Client ID
+- `MANAGE`: 읽기+쓰기+관리 전체 권한
+
+우리의 경우:
+```bash
+databricks secrets put-acl q-bank 4abe3da9-f69d-4821-be1e-74cce377deda MANAGE --profile oauth
+```
+
+---
+
+### CI/CD 에러 4: `accepts 2 arg(s), received 3`
+
+```
+Run databricks workspace import-dir ./frontend \
+Error: accepts 2 arg(s), received 3
+```
+
+#### 이게 뭔 소리야?
+`databricks workspace import-dir`은 인자(argument)가 2개 필요함:
+1. `SOURCE_PATH` = `./frontend` (로컬 경로)
+2. `TARGET_PATH` = `/Workspace/Users/.../apps/q_bank` (Databricks 경로)
+
+그런데 3개가 들어왔다고 함. 경로 안에 **공백이 있어서 쪼개진 것**.
+
+#### 원인
+`DATABRICKS_USER` Secret 값에 공백이 포함되어 있으면:
+
+```
+# Secret 값: "jimin.ahn@data-dynamics.io " (끝에 공백!)
+# 결과:
+databricks workspace import-dir ./frontend /Workspace/Users/jimin.ahn@data-dynamics.io /apps/q_bank --overwrite
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ ^^^^^^^^^^^^^^
+                                           인자 2 (여기서 잘림)                          인자 3 (이게 생김!)
+```
+
+경로 중간에 공백이 들어가서 하나의 경로가 2개로 쪼개지고, 총 3개 인자가 됨.
+
+#### 해결
+
+**방법 1: Secret 값의 공백 제거** (근본 해결)
+- GitHub Secrets에서 `DATABRICKS_USER` 삭제 후 다시 등록
+- 값: `jimin.ahn@data-dynamics.io` (공백 절대 없이!)
+
+**방법 2: deploy.yml에서 따옴표로 감싸기** (방어적 코딩)
+```yaml
+# 여러 줄로 쓰면 줄바꿈 + Secret 공백이 합쳐져서 문제가 될 수 있음
+# 한 줄로 쓰고 따옴표로 감싸는 게 안전:
+
+# 변경 전 (여러 줄, 따옴표 없음)
+- name: Sync source to Databricks Workspace
+  run: |
+    databricks workspace import-dir ./frontend \
+      /Workspace/Users/${{ secrets.DATABRICKS_USER }}/apps/q_bank \
+      --overwrite
+
+# 변경 후 (한 줄, 따옴표 있음)
+- name: Sync source to Databricks Workspace
+  run: databricks workspace import-dir ./frontend "/Workspace/Users/${{ secrets.DATABRICKS_USER }}/apps/q_bank" --overwrite
+```
+
+> **교훈:** GitHub Secrets 값에 공백이 들어가면 온갖 에러가 남.
+> Secret 등록할 때 **반드시 앞뒤 공백을 제거**하는 것이 가장 중요!
+
+---
+
+## 현재 상태 (2026-04-17)
+
+### 완료된 것
+
+| # | 작업 | 상태 |
+|---|------|------|
+| 1 | Databricks 워크스페이스 확보 (AWS us-east-1) | 완료 |
+| 2 | Lakebase 프로젝트 생성 (`q-bank`, PostgreSQL 16) | 완료 |
+| 3 | `q_bank` 데이터베이스 생성 | 완료 |
+| 4 | Connection details 확인 | 완료 |
+| 5 | 로컬 Docker → `pg_dump` 풀 덤프 | 완료 |
+| 6 | Lakebase에 스키마 + 데이터 복원 (12개 테이블) | 완료 |
+| 7 | Databricks Secret scope `q-bank` 생성 + `DB_PASSWORD` 저장 | 완료 |
+| 8 | Databricks App `q-bank` 생성 | 완료 |
+| 9 | 수동 배포 + 동작 확인 (Streamlit + Lakebase 연결) | 완료 |
+| 10 | `app.yaml` placeholder로 되돌림 (보안) | 완료 |
+| 11 | `deploy.yml` OAuth 인증 방식으로 변경 | 완료 |
+| 12 | `backend.py` SSL 자동 감지 추가 | 완료 |
+| 13 | `selector.py` Databricks 사용자 헤더 감지 추가 | 완료 |
+| 14 | GitHub Secrets 기본 등록 (6개) | 완료 |
+| 15 | 코드 push (`fce5421`) | 완료 |
+
+### 아직 안 된 것 (CI/CD 자동배포가 안 되는 이유)
+
+현재 `git push origin master` 하면 GitHub Actions가 **실패**함. 이유:
+
+#### 1. 서비스 프린시플이 없음
+
+`deploy.yml`이 `DATABRICKS_CLIENT_ID` + `DATABRICKS_CLIENT_SECRET`으로 인증하도록 바꿨는데,
+아직 서비스 프린시플 자체를 안 만들었음. 없는 계정으로 로그인하려는 거라 실패.
+
+#### 2. GitHub Secrets에 `CLIENT_ID`/`CLIENT_SECRET`이 없음
+
+서비스 프린시플을 만들어야 Client ID와 Client Secret이 나오고,
+그걸 GitHub Secrets에 등록해야 CI/CD가 동작함.
+
+#### 3. `DB_USER` GitHub Secret 값이 옛날 값임
+
+GitHub Secrets의 `DB_USER`가 아직 `jimin.ahn@data-dynamics.io`로 되어있을 수 있음.
+`q_bank_app`으로 변경해야 CI/CD가 올바른 계정으로 배포함.
+
+---
+
+## 남은 할일 (순서대로)
+
+### Step 1: Databricks 서비스 프린시플 생성
+
+> **어디서:** Databricks 워크스페이스 웹
+
+1. https://ddbx-serverless.cloud.databricks.com 접속
+2. 우상단 프로필 클릭 → **Admin Settings**
+3. 왼쪽 메뉴 **Service principals** 클릭
+4. **Add service principal** 클릭
+5. 이름: `q-bank-deploy` 입력 → 저장
+6. 방금 만든 `q-bank-deploy` 클릭
+7. **OAuth secrets** 섹션 → **Generate secret** 클릭
+8. **Client ID**와 **Client Secret**이 화면에 나옴
+
+> **주의:** Client Secret은 **이 화면에서 한 번만** 보여줌!
+> 반드시 어딘가에 복사해놓기. 닫으면 다시 못 봄.
+
+### Step 2: 서비스 프린시플에 권한 부여
+
+> **어디서:** Databricks 워크스페이스 웹
+
+서비스 프린시플을 만들었어도 권한이 없으면 아무것도 못 함.
+아래 권한을 부여해야 함:
+
+1. **Workspace 접근 권한**
+   - Admin Settings → Service principals → `q-bank-deploy` 클릭
+   - **Entitlements** 에서 `Workspace access` 체크
+
+2. **Apps 배포 권한**
+   - Databricks Apps → `q-bank` 앱 → Settings/Permissions
+   - `q-bank-deploy` 서비스 프린시플에 `Can Manage` 권한 부여
+
+3. **Workspace 폴더 접근 권한**
+   - Workspace → `/Users/jimin.ahn@data-dynamics.io/apps/q_bank` 폴더
+   - 해당 폴더에 `q-bank-deploy`에게 쓰기 권한 부여
+
+### Step 3: GitHub Secrets 업데이트
+
+> **어디서:** https://github.com/PilferAhn/q_bank/settings/secrets/actions
+
+| 작업 | Name | Value |
+|------|------|-------|
+| **추가** | `DATABRICKS_CLIENT_ID` | Step 1에서 복사한 Client ID |
+| **추가** | `DATABRICKS_CLIENT_SECRET` | Step 1에서 복사한 Client Secret |
+| **수정** | `DB_USER` | `q_bank_app` (기존: `jimin.ahn@data-dynamics.io`) |
+| **수정** | `DB_PASSWORD` | `QBank2026!` |
+| **삭제** | `DATABRICKS_TOKEN` | 더 이상 안 씀 |
+
+나머지는 그대로 유지:
+- `DATABRICKS_HOST` = `https://ddbx-serverless.cloud.databricks.com`
+- `DATABRICKS_USER` = `jimin.ahn@data-dynamics.io`
+- `DATABRICKS_APP_NAME` = `q-bank`
+- `DB_HOST` = `ep-plain-mode-d2osyuep.database.us-east-1.cloud.databricks.com`
+
+### Step 4: GitHub Actions 재실행
+
+> **어디서:** https://github.com/PilferAhn/q_bank/actions
+
+1. 가장 최근 실패한 워크플로우 클릭
+2. **Re-run all jobs** 클릭
+3. 또는 GitHub Actions 페이지에서 **Run workflow** 버튼 (workflow_dispatch 지원)
+4. 초록색 체크가 뜨면 성공!
+
+### Step 5: 앱 동작 확인
+
+1. Databricks Apps에서 `q-bank` 앱 URL 클릭
+2. Streamlit 화면이 뜨는지 확인
+3. 문제 조회/풀기가 동작하는지 확인
+4. 응시자 이름이 자동으로 잡히는지 확인
